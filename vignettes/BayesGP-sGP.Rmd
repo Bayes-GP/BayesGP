@@ -71,7 +71,7 @@ function from the `sGPfit` package:
 
 ```{r}
 prior_PSD <- list(u = 1, alpha = 0.01)
-prior_SD <- BayesGP::prior_conversion_sGP(d = 50, prior = prior_PSD, a = 2*pi/10)
+prior_SD <- BayesGP::prior_conversion_sgp(d = 50, prior = prior_PSD, a = 2*pi/10)
 ```
 
  
@@ -122,6 +122,5 @@ mod <- model_fit(formula = y ~ f(x = year,
                  data = data,
                  method = "aghq")
 ```
-
 
 

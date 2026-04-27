@@ -75,14 +75,14 @@ matplot(x = predict_f[,1], y = predict_f[,2:4], type = 'l', ylab = "f", xlab = "
 
 For the first derivative:
 ```{r warning=FALSE}
-predict_f1st <- predict(fit_result, variable = "t", newdata = data.frame(t = seq(from = 605, to = 615, by = 0.1)), degree = 1)
+predict_f1st <- predict(fit_result, variable = "t", newdata = data.frame(t = seq(from = 605, to = 615, by = 0.1)), deriv = 1)
 matplot(x = predict_f1st[,1], y = predict_f1st[,2:4], type = 'l', ylab = "f'", xlab = "t", col = c("grey", "grey", "black"), lty = c("dashed", "dashed", "solid"))
 ```
 
 
 For the second derivative:
 ```{r warning=FALSE}
-predict_f2nd <- predict(fit_result, variable = "t", newdata = data.frame(t = seq(from = 605, to = 617, by = 0.1)), degree = 2)
+predict_f2nd <- predict(fit_result, variable = "t", newdata = data.frame(t = seq(from = 605, to = 617, by = 0.1)), deriv = 2)
 matplot(x = predict_f2nd[,1], y = predict_f2nd[,2:4], type = 'l', ylab = "f''", xlab = "t", col = c("grey", "grey", "black"), lty = c("dashed", "dashed", "solid"))
 ```
 
@@ -91,4 +91,3 @@ matplot(x = predict_f2nd[,1], y = predict_f2nd[,2:4], type = 'l', ylab = "f''", 
 
 
  
-

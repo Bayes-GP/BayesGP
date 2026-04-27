@@ -66,7 +66,7 @@ Here the true effect used to simulate the data is shown as the red line. It is i
 ## CoxPH Model
 
 
-For Cox Proportional Hazard Model, one can specify the argument `family` to `"coxph` to fit a CoxPH model with its partial likelihood.
+For Cox Proportional Hazard Model, one can specify the argument `family = "coxph"` to fit a CoxPH model with its partial likelihood.
 
 Here we will illustrate with the `kidney` example from the `survival` package.
 
@@ -93,4 +93,3 @@ hist(samps_sex, main = "Samples for effect of sex", xlab = "Effect")
 ```
 
  
-
