@@ -12,7 +12,8 @@
   include.intercept = TRUE,
   only.samples = FALSE,
   quantiles = c(0.025, 0.5, 0.975),
-  boundary.condition = "Yes"
+  boundary.condition = "Yes",
+  ...
 )
 }
 \arguments{
@@ -32,7 +33,18 @@ variable will be forced to FALSE.}
 \item{quantiles}{A numeric vector of quantiles that predict.FitResult will produce, the default is c(0.025, 0.5, 0.975).}
 
 \item{boundary.condition}{A string specifies whether the boundary.condition should be considered in the prediction, should be one of c("yes", "no", "only"). The default option is "Yes".}
+
+\item{...}{Additional arguments. Currently unused.}
 }
 \description{
 To predict the GP component in the fitted model, at the locations specified in `newdata`.
+}
+\details{
+For near-monotone terms (`model = "mgp"` or `model = "tiwp2"`) and for
+exact `iwp` state-space terms (`model = "iwp", computation =
+"state-space"`), `predict()` also supports `only.samples = TRUE` to return
+posterior draws directly. Exact
+state-space fits can only be evaluated on the support grid used at fit
+time; provide those locations through `grid = ...` inside `f()` when
+fitting if predictions are needed at additional points.
 }

@@ -34,7 +34,11 @@ assume there will be no global polynomials and the boundary conditions are exact
 
 \item{region}{The region to define the sB basis}
 
+\item{boundary}{Logical; whether the seasonal boundary basis is included.}
+
 \item{m}{The number of harmonics to consider}
+
+\item{intercept_samps}{Optional posterior samples for an intercept to add to each function draw.}
 
 \item{initial_location}{The initial location of the sGP.}
 }

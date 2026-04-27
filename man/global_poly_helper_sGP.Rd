@@ -12,6 +12,8 @@ global_poly_helper_sgp(refined_x, a, m, initial_location = NULL)
 \item{a}{The frequency of sgp.}
 
 \item{m}{The number of harmonics to consider}
+
+\item{initial_location}{Optional reference location for centering the seasonal basis.}
 }
 \value{
 A matrix with i,j componet being the value of jth basis function

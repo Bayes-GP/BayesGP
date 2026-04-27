@@ -50,6 +50,8 @@ Type objective_function<Type>::operator() ()
   DATA_VECTOR(offset_sum);
   DATA_VECTOR(y); //response variable
   DATA_SCALAR(family_type); // Family types: Gaussian - 0, Poisson - 1, Binomial - 2, Coxph - 3, Case-Crossover - 4
+  DATA_SCALAR(gaussian_sd_known);
+  DATA_SCALAR(gaussian_sd_value);
 
   vector<int> betadim(X.size());
   int sum_betadim = 0;
@@ -163,7 +165,8 @@ Type objective_function<Type>::operator() ()
   // Family types: Gaussian - 0, Poisson - 1, Binomial - 2,
   // CoxPH - 3, Case-crossover - 4
   if (family_type == 0){
-    ll = sum(dnorm(y, eta, sigma(theta.size() - 1), TRUE));
+    Type obs_sd = gaussian_sd_known > Type(0.5) ? Type(gaussian_sd_value) : sigma(theta.size() - 1);
+    ll = sum(dnorm(y, eta, obs_sd, TRUE));
   } 
   else if (family_type == 1){
     ll = sum(dpois(y, exp(eta), TRUE));
@@ -200,19 +203,35 @@ Type objective_function<Type>::operator() ()
   } 
 
   else if (family_type == 4){
-    DATA_VECTOR(count);
-    DATA_IVECTOR(case_day);
-    DATA_IMATRIX(control_days);
-    int n_case_day = case_day.size();
-    int n_control_days = control_days.row(0).size();
-    for (int i = 0;i<n_case_day;i++) {
-      Type log_hazard_ratio_sum = 0;
-      for(int j = 0;j<n_control_days;j++) {
-        if(control_days(i,j) == 0) continue;
-        log_hazard_ratio_sum = logspace_add(log_hazard_ratio_sum, eta(control_days(i,j) - 1) - eta(case_day(i) - 1));
+    DATA_IMATRIX(stratum_members);
+    DATA_VECTOR(stratum_count);
+    int n_strata = stratum_members.rows();
+    int n_members = stratum_members.cols();
+
+    for (int s = 0; s < n_strata; s++) {
+      Type log_denom = 0;
+      Type weighted_eta_sum = 0;
+      bool has_member = false;
+
+      for (int j = 0; j < n_members; j++) {
+        int row_index = stratum_members(s, j);
+        if (row_index == 0) continue;
+
+        Type row_eta = eta(row_index - 1);
+        weighted_eta_sum += y(row_index - 1) * row_eta;
+
+        if (!has_member) {
+          log_denom = row_eta;
+          has_member = true;
+        } else {
+          log_denom = logspace_add(log_denom, row_eta);
         }
-        ll -= count(i) * log_hazard_ratio_sum;
-        }
+      }
+
+      if (has_member) {
+        ll += weighted_eta_sum - stratum_count(s) * log_denom;
+      }
+    }
 }
 
   else if (family_type == -2){
@@ -229,12 +248,14 @@ Type objective_function<Type>::operator() ()
 
   // Log prior on W
   Type lpW = 0;
+  Type log_two_pi = log(Type(2.0 * M_PI));
   // Cross product (for each RE and its boundary, and for fixed effect)
   // For Random Effects:
   int cur_dim_sum_boundary = 0;
   for (int i = 0; i < X.size(); i++){
     for (int j = 0; j < X(i).cols(); j++){
       Type bb = (beta(i)(j) - betamean(cur_dim_sum_boundary + j)) * (beta(i)(j) - betamean(cur_dim_sum_boundary + j));
+      lpW += 0.5 * log(betaprec(cur_dim_sum_boundary + j)) - 0.5 * log_two_pi;
       lpW += -0.5 * betaprec(cur_dim_sum_boundary + j) * bb; // Beta part (boundary condition)
     }
     cur_dim_sum_boundary += X(i).cols();
@@ -244,12 +265,14 @@ Type objective_function<Type>::operator() ()
     lpW += -0.5 * exp(theta(i)) * ((U(i) * (P(i) * U(i))).sum()); // U part (spline effect)
     // Log determinant
     Type logdet = d(i) * theta(i) + logPdet(i);
+    lpW += -0.5 * Type(d(i)) * log_two_pi;
     lpW += 0.5 * logdet; // P part
   }
 
   // For Fixed Effects;
   for (int i = 0; i < beta_fixed.size(); i++){
     Type bbf = ((beta_fixed(i) - beta_fixed_mean(i)) * (beta_fixed(i) - beta_fixed_mean(i))).sum(); // Fixed effect
+    lpW += Type(beta_fixed(i).size()) * (0.5 * log(beta_fixed_prec(i)) - 0.5 * log_two_pi);
     lpW += -0.5 * beta_fixed_prec(i) * bbf; //
   }
 

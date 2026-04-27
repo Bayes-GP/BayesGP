@@ -2,17 +2,98 @@
 % Please edit documentation in R/01_utility.R
 \name{f}
 \alias{f}
-\title{Function defined to enhance the usability for users on IDEs.}
+\title{Declare a BayesGP smooth or random-effect term}
 \usage{
 f(
   smoothing_var,
   model = "iid",
+  computation = NULL,
   sd.prior = NULL,
   boundary.prior = NULL,
-  initial_location = c("middle", "left", "right"),
+  initial_location = NULL,
   ...
 )
 }
+\arguments{
+\item{smoothing_var}{Column in `data` defining the random-effect or smooth
+input.}
+
+\item{model}{Smooth-term model name. Supported values are `"iid"`, `"iwp"`,
+`"sgp"`, `"mgp"`, and `"tiwp2"`.}
+
+\item{computation}{Optional representation choice. FEM is the default for
+models with FEM support; exact state-space representations are available
+for selected `iwp`, `mgp`, and `tiwp2` terms.}
+
+\item{sd.prior}{Prior specification for the smooth standard deviation. The
+common exponential PC prior form is `list(prior = "exp", param = list(u =
+1, alpha = 0.5))`, meaning `P(SD > u) = alpha`.}
+
+\item{boundary.prior}{Prior specification for boundary/global coefficients
+when the model has such coefficients. A common form is `list(mean = 0,
+prec = 0.001)`.}
+
+\item{initial_location}{Optional reference location. Supported values depend
+on the model and include numeric values and named locations such as
+`"left"`, `"middle"`, and `"right"`.}
+
+\item{...}{Additional model-specific arguments.}
+}
 \description{
-Function defined to enhance the usability for users on IDEs.
+Helper used inside \code{\link{model_fit}} formulas to declare smooth or
+random-effect terms. Use this page for the shared interface and common prior
+syntax; use the model-specific help pages for model arguments and examples.
+}
+\section{Supported models}{
+
+\describe{
+  \item{`model = "iid"`}{Independent random effects over factor levels. See
+  \code{\link{f_iid}}.}
+  \item{`model = "iwp"`}{Integrated Wiener process smooth using the BayesGP
+  FEM/O-spline implementation by default, with an added exact state-space
+  representation for `order = 2`. See \code{\link{f_iwp}}.}
+  \item{`model = "sgp"`}{Seasonal Gaussian process smooth using the BayesGP
+  FEM implementation. See \code{\link{f_sgp}}.}
+  \item{`model = "mgp"`}{Near-monotone mGP smooth. FEM is the default;
+  state-space computation is available explicitly. See \code{\link{f_mgp}}.}
+  \item{`model = "tiwp2"`}{Transformed IWP2 near-monotone smooth. FEM is the
+  default; state-space computation is available explicitly. See
+  \code{\link{f_tiwp2}}.}
+}
+}
+
+\section{Common argument examples}{
+
+\preformatted{
+# Standard exponential PC prior for a smooth SD:
+sd.prior = list(prior = "exp", param = list(u = 1, alpha = 0.5))
+
+# Calibrate the prior through h-step predictive SD where supported:
+sd.prior = list(
+  prior = "exp",
+  param = list(u = 0.5, alpha = 0.1),
+  h = 1
+)
+
+# Boundary/global coefficient prior:
+boundary.prior = list(mean = 0, prec = 0.001)
+
+# FEM basis domain and exact state-space support:
+region = c(0, 10)
+grid = seq(0, 10, length.out = 50)
+}
+}
+
+\examples{
+f(group, model = "iid")
+f(x, model = "iwp", order = 2, k = 30)
+f(time, model = "sgp", period = 12, m = 2)
+f(x, model = "mgp", a = 2, initial_location = "left")
+f(x, model = "tiwp2", a = 2, computation = "state-space", grid = seq(0, 1, length.out = 20))
+
+}
+\seealso{
+\code{\link{f_iid}}, \code{\link{f_iwp}},
+  \code{\link{f_sgp}}, \code{\link{f_mgp}}, \code{\link{f_tiwp2}},
+  \code{\link{model_fit}}, \code{\link{supported_models}}
 }

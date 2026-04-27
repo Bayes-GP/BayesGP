@@ -1,6 +1,85 @@
-#' Function defined to enhance the usability for users on IDEs.
+#' @keywords internal
+#' @import Matrix
+#' @importFrom graphics legend matplot
+#' @importFrom methods as new setGeneric setMethod slot slotNames
+#' @importFrom stats density model.matrix nlminb predict quantile terms
+#' @importFrom utils capture.output type.convert
+"_PACKAGE"
+
+#' Declare a BayesGP smooth or random-effect term
+#'
+#' Helper used inside \code{\link{model_fit}} formulas to declare smooth or
+#' random-effect terms. Use this page for the shared interface and common prior
+#' syntax; use the model-specific help pages for model arguments and examples.
+#'
+#' @param smoothing_var Column in `data` defining the random-effect or smooth
+#'   input.
+#' @param model Smooth-term model name. Supported values are `"iid"`, `"iwp"`,
+#'   `"sgp"`, `"mgp"`, and `"tiwp2"`.
+#' @param computation Optional representation choice. FEM is the default for
+#'   models with FEM support; exact state-space representations are available
+#'   for selected `iwp`, `mgp`, and `tiwp2` terms.
+#' @param sd.prior Prior specification for the smooth standard deviation. The
+#'   common exponential PC prior form is `list(prior = "exp", param = list(u =
+#'   1, alpha = 0.5))`, meaning `P(SD > u) = alpha`.
+#' @param boundary.prior Prior specification for boundary/global coefficients
+#'   when the model has such coefficients. A common form is `list(mean = 0,
+#'   prec = 0.001)`.
+#' @param initial_location Optional reference location. Supported values depend
+#'   on the model and include numeric values and named locations such as
+#'   `"left"`, `"middle"`, and `"right"`.
+#' @param ... Additional model-specific arguments.
+#'
+#' @section Supported models:
+#' \describe{
+#'   \item{`model = "iid"`}{Independent random effects over factor levels. See
+#'   \code{\link{f_iid}}.}
+#'   \item{`model = "iwp"`}{Integrated Wiener process smooth using the BayesGP
+#'   FEM/O-spline implementation by default, with an added exact state-space
+#'   representation for `order = 2`. See \code{\link{f_iwp}}.}
+#'   \item{`model = "sgp"`}{Seasonal Gaussian process smooth using the BayesGP
+#'   FEM implementation. See \code{\link{f_sgp}}.}
+#'   \item{`model = "mgp"`}{Near-monotone mGP smooth. FEM is the default;
+#'   state-space computation is available explicitly. See \code{\link{f_mgp}}.}
+#'   \item{`model = "tiwp2"`}{Transformed IWP2 near-monotone smooth. FEM is the
+#'   default; state-space computation is available explicitly. See
+#'   \code{\link{f_tiwp2}}.}
+#' }
+#'
+#' @section Common argument examples:
+#' \preformatted{
+#' # Standard exponential PC prior for a smooth SD:
+#' sd.prior = list(prior = "exp", param = list(u = 1, alpha = 0.5))
+#'
+#' # Calibrate the prior through h-step predictive SD where supported:
+#' sd.prior = list(
+#'   prior = "exp",
+#'   param = list(u = 0.5, alpha = 0.1),
+#'   h = 1
+#' )
+#'
+#' # Boundary/global coefficient prior:
+#' boundary.prior = list(mean = 0, prec = 0.001)
+#'
+#' # FEM basis domain and exact state-space support:
+#' region = c(0, 10)
+#' grid = seq(0, 10, length.out = 50)
+#' }
+#'
+#' @examples
+#' f(group, model = "iid")
+#' f(x, model = "iwp", order = 2, k = 30)
+#' f(time, model = "sgp", period = 12, m = 2)
+#' f(x, model = "mgp", a = 2, initial_location = "left")
+#' f(x, model = "tiwp2", a = 2, computation = "state-space", grid = seq(0, 1, length.out = 20))
+#'
+#' @seealso \code{\link{f_iid}}, \code{\link{f_iwp}},
+#'   \code{\link{f_sgp}}, \code{\link{f_mgp}}, \code{\link{f_tiwp2}},
+#'   \code{\link{model_fit}}, \code{\link{supported_models}}
 #' @export
-f <- function(smoothing_var, model = "iid", sd.prior = NULL, boundary.prior = NULL, initial_location = c("middle", "left", "right"), ...) {
+f <- function(smoothing_var, model = "iid", computation = NULL,
+              sd.prior = NULL, boundary.prior = NULL,
+              initial_location = NULL, ...) {
   # Capture the full call
   mc <- match.call(expand.dots = TRUE)
   
@@ -9,9 +88,12 @@ f <- function(smoothing_var, model = "iid", sd.prior = NULL, boundary.prior = NU
   
   # Ensure all default arguments are included
   mc$model <- model
+  mc$computation <- computation
   mc$sd.prior <- sd.prior
   mc$boundary.prior <- boundary.prior
-  mc$initial_location <- initial_location[1]
+  if(!is.null(initial_location)){
+    mc$initial_location <- initial_location[1]
+  }
   
   # Replace smoothing_var with its unevaluated form
   mc$smoothing_var <- substitute(smoothing_var)
@@ -19,6 +101,241 @@ f <- function(smoothing_var, model = "iid", sd.prior = NULL, boundary.prior = NU
   # Return the modified call
   return(mc)
 }
+
+#' Model-specific `f()` documentation for independent random effects
+#'
+#' Use `f(group, model = "iid")` for exchangeable random effects over observed
+#' levels of a grouping variable.
+#'
+#' @section Required arguments:
+#' \describe{
+#'   \item{`smoothing_var`}{Grouping variable in `data`. Character, factor, and
+#'   numeric inputs are converted to observed levels.}
+#'   \item{`model`}{Use `model = "iid"`.}
+#' }
+#'
+#' @section Optional arguments:
+#' \describe{
+#'   \item{`sd.prior`}{Prior for the random-effect standard deviation. The
+#'   default is `list(prior = "exp", param = list(u = 1, alpha = 0.5))`.}
+#' }
+#'
+#' @examples
+#' f(group, model = "iid")
+#' f(group, model = "iid",
+#'   sd.prior = list(prior = "exp", param = list(u = 0.5, alpha = 0.1))
+#' )
+#'
+#' @seealso \code{\link{f}}, \code{\link{supported_models}}
+#' @name f_iid
+#' @aliases f.iid
+NULL
+
+#' Model-specific `f()` documentation for integrated Wiener process smooths
+#'
+#' Use `f(x, model = "iwp")` for BayesGP integrated Wiener process smooths. The
+#' default is the BayesGP FEM/O-spline representation. An exact state-space
+#' representation is also available for `order = 2`.
+#'
+#' @section Required arguments:
+#' \describe{
+#'   \item{`smoothing_var`}{Numeric smoothing variable in `data`.}
+#'   \item{`model`}{Use `model = "iwp"`.}
+#'   \item{`order`}{IWP order. The FEM representation supports positive
+#'   orders; exact state-space currently requires `order = 2`.}
+#' }
+#'
+#' @section Computation and domain arguments:
+#' \describe{
+#'   \item{`computation`}{Use `"fem"` for the default FEM/O-spline
+#'   representation, or `"state-space"` for the exact order-2 representation.}
+#'   \item{`k`}{Number of FEM knots when explicit `knots` are not supplied.
+#'   Defaults to 30.}
+#'   \item{`knots`}{Explicit FEM knot sequence on the original input scale.}
+#'   \item{`region`}{Continuous FEM domain. Defaults to the observed range.}
+#'   \item{`grid`}{Discrete support for exact state-space fitting and later
+#'   prediction. Defaults to observed `smoothing_var` values.}
+#'   \item{`initial_location`}{Reference location. FEM defaults to `"middle"`;
+#'   exact state-space defaults to `"left"`.}
+#' }
+#'
+#' @section Prior arguments:
+#' \describe{
+#'   \item{`sd.prior`}{Prior for the smooth standard deviation. Add `h` or
+#'   `step` for predictive-SD calibration.}
+#'   \item{`boundary.prior`}{Gaussian prior for boundary/global coefficients,
+#'   such as `list(mean = 0, prec = 0.001)`.}
+#' }
+#'
+#' @examples
+#' f(x, model = "iwp", order = 2, k = 30)
+#' f(x, model = "iwp", order = 2, computation = "state-space", grid = seq(0, 1, length.out = 20))
+#' f(x, model = "iwp", order = 3, region = c(0, 10),
+#'   sd.prior = list(prior = "exp", param = list(u = 1, alpha = 0.5)),
+#'   boundary.prior = list(mean = 0, prec = 0.001)
+#' )
+#'
+#' @seealso \code{\link{f}}, \code{\link{f_sgp}},
+#'   \code{\link{f_mgp}}, \code{\link{f_tiwp2}}
+#' @name f_iwp
+#' @aliases f.iwp
+NULL
+
+#' Model-specific `f()` documentation for seasonal Gaussian process smooths
+#'
+#' Use `f(x, model = "sgp")` for BayesGP seasonal Gaussian process smooths.
+#' Seasonal GP terms use the BayesGP FEM representation.
+#'
+#' @section Required arguments:
+#' \describe{
+#'   \item{`smoothing_var`}{Numeric smoothing variable in `data`.}
+#'   \item{`model`}{Use `model = "sgp"`.}
+#'   \item{`period`, `freq`, or `a`}{Seasonal frequency. Supply exactly one of
+#'   period length, cycles-per-unit frequency, or angular frequency `a`.}
+#' }
+#'
+#' @section Computation and domain arguments:
+#' \describe{
+#'   \item{`m`}{Number of harmonics. Defaults to 1.}
+#'   \item{`k`}{Number of B-spline basis functions. Defaults to 30.}
+#'   \item{`region`}{Continuous FEM domain. Defaults to the observed range.}
+#'   \item{`accuracy`}{Numerical integration resolution. Defaults to 5000.}
+#'   \item{`boundary`}{Whether to drop boundary B-spline basis functions.
+#'   Defaults to `TRUE`.}
+#' }
+#'
+#' @section Prior arguments:
+#' \describe{
+#'   \item{`sd.prior`}{Prior for the smooth standard deviation. Add `h` or
+#'   `step` for predictive-SD calibration.}
+#'   \item{`boundary.prior`}{Gaussian prior for seasonal boundary/global
+#'   coefficients, such as `list(mean = 0, prec = 0.001)`.}
+#' }
+#'
+#' @examples
+#' f(month, model = "sgp", period = 12, m = 2)
+#' f(time, model = "sgp", freq = 1 / 365, k = 40, region = c(0, 365))
+#' f(time, model = "sgp", a = 2 * pi / 12,
+#'   sd.prior = list(prior = "exp", param = list(u = 0.5, alpha = 0.1)),
+#'   boundary.prior = list(mean = 0, prec = 0.001)
+#' )
+#'
+#' @seealso \code{\link{f}}, \code{\link{f_iwp}}
+#' @name f_sgp
+#' @aliases f.sgp
+NULL
+
+#' Model-specific `f()` documentation for near-monotone mGP smooths
+#'
+#' Use `f(x, model = "mgp")` for near-monotone mGP smooths. FEM is the default
+#' computation method; exact state-space computation is available explicitly.
+#'
+#' @section Required arguments:
+#' \describe{
+#'   \item{`smoothing_var`}{Numeric smoothing variable in `data`.}
+#'   \item{`model`}{Use `model = "mgp"`.}
+#'   \item{`a` or `alpha`}{Curvature-control parameter for the base model.
+#'   Supply one name.}
+#' }
+#'
+#' @section Computation and domain arguments:
+#' \describe{
+#'   \item{`computation`}{Use `"fem"` by default, or `"state-space"` for exact
+#'   support-grid computation.}
+#'   \item{`c`}{Original-scale additive shift in
+#'   `m(x) = (x + c)^((a - 1) / a)`, or `m(x) = log(x + c)` when `a = 1`. If
+#'   omitted, BayesGP chooses a domain-aware shift so `x + c > 0`.}
+#'   \item{`initial_location`}{Reference location: `"left"`, `"middle"`,
+#'   `"right"`, or a numeric value inside the domain. Defaults to `"left"`.}
+#'   \item{`region` or `range`}{Continuous FEM domain. Defaults to the observed
+#'   range.}
+#'   \item{`grid`}{Discrete support for exact state-space fitting and later
+#'   prediction.}
+#'   \item{`k`}{Number of FEM basis functions. Defaults to 30.}
+#'   \item{`accuracy`}{FEM integration step. Defaults to 0.01.}
+#'   \item{`normalized_boundary`}{Whether the shared boundary basis is scaled
+#'   so its derivative is one at the reference. Defaults to `TRUE`.}
+#' }
+#'
+#' @section Prior arguments:
+#' \describe{
+#'   \item{`sd.prior`}{Prior for the smooth standard deviation. Add `h` or
+#'   `step` plus original-scale `x` for predictive-SD calibration.}
+#'   \item{`boundary.prior`}{Gaussian prior for the shared boundary
+#'   coefficient. The model intercept supplies the shared level when the
+#'   family includes an intercept.}
+#' }
+#'
+#' @examples
+#' f(pm25, model = "mgp", a = 2)
+#' f(pm25, model = "mgp", a = 2, c = 10, initial_location = "middle")
+#' f(pm25, model = "mgp", a = 2, region = c(0, 40), k = 40)
+#' f(pm25, model = "mgp", a = 2, computation = "state-space", grid = seq(0, 40, length.out = 50))
+#' f(pm25, model = "mgp", a = 2,
+#'   sd.prior = list(prior = "exp", param = list(u = 1, alpha = 0.5), h = 1, x = 10),
+#'   boundary.prior = list(mean = 0, prec = 0.001)
+#' )
+#'
+#' @seealso \code{\link{f}}, \code{\link{f_tiwp2}}
+#' @name f_mgp
+#' @aliases f.mgp
+NULL
+
+#' Model-specific `f()` documentation for transformed IWP2 near-monotone smooths
+#'
+#' Use `f(x, model = "tiwp2")` for transformed IWP2 near-monotone smooths.
+#' FEM is the default computation method; exact state-space computation is
+#' available explicitly.
+#'
+#' @section Required arguments:
+#' \describe{
+#'   \item{`smoothing_var`}{Numeric smoothing variable in `data`.}
+#'   \item{`model`}{Use `model = "tiwp2"`.}
+#'   \item{`a` or `alpha`}{Curvature-control parameter for the Box-Cox base
+#'   model. Supply one name.}
+#' }
+#'
+#' @section Computation and domain arguments:
+#' \describe{
+#'   \item{`computation`}{Use `"fem"` by default, or `"state-space"` for exact
+#'   support-grid computation.}
+#'   \item{`c`}{Original-scale additive shift in the Box-Cox base model. If
+#'   omitted, BayesGP chooses a domain-aware shift so `x + c > 0`.}
+#'   \item{`initial_location`}{Reference location: `"left"`, `"middle"`,
+#'   `"right"`, or a numeric value inside the domain. Defaults to `"left"`.}
+#'   \item{`region` or `range`}{Continuous FEM domain. Defaults to the observed
+#'   range.}
+#'   \item{`grid`}{Discrete support for exact state-space fitting and later
+#'   prediction.}
+#'   \item{`k`}{Number of FEM basis functions. Defaults to 30.}
+#'   \item{`accuracy`}{FEM integration step. Defaults to 0.01.}
+#'   \item{`normalized_boundary`}{Whether the shared boundary basis is scaled
+#'   so its derivative is one at the reference. Defaults to `TRUE`.}
+#' }
+#'
+#' @section Prior arguments:
+#' \describe{
+#'   \item{`sd.prior`}{Prior for the smooth standard deviation. Add `h` or
+#'   `step` plus original-scale `x` for predictive-SD calibration.}
+#'   \item{`boundary.prior`}{Gaussian prior for the shared boundary
+#'   coefficient. The model intercept supplies the shared level when the
+#'   family includes an intercept.}
+#' }
+#'
+#' @examples
+#' f(pm25, model = "tiwp2", a = 2)
+#' f(pm25, model = "tiwp2", a = 2, c = 10, initial_location = "middle")
+#' f(pm25, model = "tiwp2", a = 2, region = c(0, 40), k = 40)
+#' f(pm25, model = "tiwp2", a = 2, computation = "state-space", grid = seq(0, 40, length.out = 50))
+#' f(pm25, model = "tiwp2", a = 2,
+#'   sd.prior = list(prior = "exp", param = list(u = 1, alpha = 0.5), h = 1, x = 10),
+#'   boundary.prior = list(mean = 0, prec = 0.001)
+#' )
+#'
+#' @seealso \code{\link{f}}, \code{\link{f_mgp}}
+#' @name f_tiwp2
+#' @aliases f.tiwp2
+NULL
 
 parse_formula <- function(formula) {
   components <- as.list(attributes(terms(formula))$ variables)
@@ -335,14 +652,15 @@ setMethod("global_poly", signature = "sgp", function(object) {
 
 #' Constructing the precision matrix given the knot sequence
 #'
-#' @param x A vector of knots used to construct the O-spline basis, first knot should be viewed as "0",
-#' the reference starting location. These k knots will define (k-1) basis function in total.
+#' @param object An `iwp` smooth-term object.
 #' @return A precision matrix of the corresponding basis function, should be diagonal matrix with
 #' size (k-1) by (k-1).
 #' @export
 setGeneric("compute_weights_precision", function(object) {
   standardGeneric("compute_weights_precision")
 })
+#' @rdname compute_weights_precision
+#' @aliases compute_weights_precision,iwp-method
 setMethod("compute_weights_precision", signature = "iwp", function(object) {
   knots <- object@knots
   if (min(knots) >= 0) {
@@ -371,7 +689,7 @@ setMethod("compute_weights_precision", signature = "iwp", function(object) {
 #' @return A precision matrix of the corresponding basis function, should be diagonal matrix with
 #' size (k-1) by (k-1).
 #' @examples
-#' compute_weights_precision(x = c(0,0.2,0.4,0.6,0.8))
+#' compute_weights_precision_helper(x = c(0,0.2,0.4,0.6,0.8))
 #' @export
 compute_weights_precision_helper <- function(x){
   d <- diff(x)
@@ -412,7 +730,7 @@ get_local_poly <- function(knots, refined_x, p) {
 #' value at ith element of refined_x, the ncol should equal to number of knots minus 1, and nrow
 #' should equal to the number of elements in refined_x.
 #' @examples
-#' local_poly(knots = c(0, 0.2, 0.4, 0.6, 0.8), refined_x = seq(0, 0.8, by = 0.1), p = 2)
+#' local_poly_helper(knots = c(0, 0.2, 0.4, 0.6, 0.8), refined_x = seq(0, 0.8, by = 0.1), p = 2)
 #' @export
 local_poly_helper <- function(knots, refined_x, p = 2, neg_sign_order = 0) {
   if (min(knots) >= 0) {
@@ -449,7 +767,7 @@ local_poly_helper <- function(knots, refined_x, p = 2, neg_sign_order = 0) {
 #' value at ith element of x, the ncol should equal to p, and nrow
 #' should equal to the number of elements in x
 #' @examples
-#' global_poly(x = c(0, 0.2, 0.4, 0.6, 0.8), p = 2)
+#' global_poly_helper(x = c(0, 0.2, 0.4, 0.6, 0.8), p = 2)
 #' @export
 global_poly_helper <- function(x, p = 2) {
   result <- NULL
@@ -464,6 +782,7 @@ global_poly_helper <- function(x, p = 2) {
 #' @param refined_x A vector of locations to evaluate the sB basis
 #' @param a The frequency of sgp.
 #' @param m The number of harmonics to consider
+#' @param initial_location Optional reference location for centering the seasonal basis.
 #' @return A matrix with i,j componet being the value of jth basis function
 #' value at ith element of x, the ncol should equal to (2*m), and nrow
 #' should equal to the number of elements in x
@@ -488,8 +807,8 @@ global_poly_helper_sgp <- function(refined_x, a, m, initial_location = NULL) {
 #' @return A list that contains alpha and u. The prior for the smoothness parameter \eqn{\sigma} such that \eqn{P(\sigma > u) = alpha}, that yields the ideal prior on the d-step SD.
 #' @export
 prior_conversion_iwp <- function(d, prior, p) {
-  Cp <- (d^((2 * p) - 1)) / (((2 * p) - 1) * (factorial(p - 1)^2))
-  prior_q <- list(alpha = prior$alpha, u = (prior$u * (1 / sqrt(Cp))))
+  correction_factor <- PSD_compute_iwp(h = d, p = p, sd = 1)
+  prior_q <- list(alpha = prior$alpha, u = (prior$u / correction_factor))
   prior_q
 }
 
@@ -502,6 +821,19 @@ compute_d_step_sgpsd <- function(d,a){
   sqrt((1/(a^2))*((d/2) - (sin(2*a*d)/(4*a))))
 }
 
+PSD_compute_iwp <- function(h, p, sd = 1) {
+  Cp <- (h^((2 * p) - 1)) / (((2 * p) - 1) * (factorial(p - 1)^2))
+  abs(sd) * sqrt(Cp)
+}
+
+PSD_compute_sgp <- function(h, a, m = 1, sd = 1) {
+  correction_factor <- 0
+  for (i in 1:m) {
+    correction_factor <- correction_factor + compute_d_step_sgpsd(d = h, a = (i * a))
+  }
+  abs(sd) * correction_factor
+}
+
 
 #' Construct prior based on d-step prediction SD (for sgp)
 #'
@@ -512,10 +844,7 @@ compute_d_step_sgpsd <- function(d,a){
 #' @return A list that contains alpha and u. The prior for the smoothness parameter \eqn{\sigma} such that \eqn{P(\sigma > u) = alpha}, that yields the ideal prior on the d-step SD.
 #' @export
 prior_conversion_sgp <- function(d, prior, a, m = 1) {
-  correction_factor <- 0
-  for (i in 1:m) {
-    correction_factor <- correction_factor + compute_d_step_sgpsd(d = d, a = (i*a))
-  }
+  correction_factor <- PSD_compute_sgp(h = d, a = a, m = m, sd = 1)
   prior_SD <- list(u = prior$u/correction_factor, alpha = prior$alpha)
   prior_SD
 }
@@ -528,6 +857,10 @@ dgTMatrix_wrapper <- function(matrix) {
   result
 }
 
+#' Construct default MCMC options
+#'
+#' @param option_list Optional named list overriding default MCMC options.
+#' @return A named list of MCMC options.
 #' @export
 get_default_option_list_MCMC <- function(option_list = list()){
   default_options <- list(chains = 1, cores = 1, init = "random", seed = 123, warmup = 10000, silent = TRUE, laplace = FALSE)
@@ -546,6 +879,9 @@ get_default_option_list_MCMC <- function(option_list = list()){
 #' This function allows for the dynamic modification of a C++ template
 #' within the BayesGP package. Users can specify custom content for the 
 #' log-likelihood as well as the log-prior of the variance parameter in the template.
+#' The copied template matches the package's compiled template, including fixed
+#' Gaussian observation-SD handling and all Gaussian prior normalizing constants
+#' used in log marginal likelihood calculations.
 #' 
 #' 
 #' @param SETUP A character string or vector containing the 

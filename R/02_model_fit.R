@@ -44,9 +44,11 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
   Xf <- list()
   
   w_count <- 0
+  family_sd_known <- identical(family_type, 0) && isTRUE(control.family$sd_known)
+  family_sd_value <- if(family_sd_known) as.numeric(control.family$sd) else NA_real_
   # Need a theta for the Gaussian variance, so
   # theta_count starts at 1 if Gaussian
-  theta_count <- 0 + (family_type == 0)
+  theta_count <- 0 + (family_type == 0 && !family_sd_known)
   
   for (instance in instances) {
     # For each random effects
@@ -87,7 +89,7 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
   
   # For the variance of the Gaussian family
   # From control.family, if applicable
-  if (family_type == 0) {
+  if (family_type == 0 && !family_sd_known) {
     u[[length(u) + 1]] <- control.family$sd.prior$param$u
     alpha[[length(alpha) + 1]] <- control.family$sd.prior$param$alpha
   }
@@ -141,7 +143,9 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
     offset_sum = as.numeric(offset_sum),
     
     # Family type
-    family_type = family_type
+    family_type = family_type,
+    gaussian_sd_known = as.numeric(family_sd_known),
+    gaussian_sd_value = if(is.na(family_sd_value)) 0 else family_sd_value
   )
   
   if(is.null(size)){
@@ -165,14 +169,13 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
     }
   }
   
-  # If Family == "cc", check whether strata and weight is defined in user's input
+  # If Family == "cc", build grouped multinomial likelihood data.
   if (family_type == 4) {
-    case <- data[[response_var]]
     if(is.null(weight)){
-      weight <- data[[response_var]]
+      count <- data[[response_var]]
     }
     else{
-      weight <- data[[weight]]
+      count <- data[[weight]]
     }
     if(is.null(data[[strata]])){
       stop("The specified names for strata are not correct.")
@@ -180,40 +183,36 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
     else{
       strata <- data[[strata]]
     }
-    case_day <- which(case > 0)
-    count <- weight[case_day] 
-    
-    # Initialize a list to store the control_day for each strata
-    unique_strata <- unique(strata)
-    control_day_list <- list()
-    
-    max_N <- max(sapply(unique_strata, function(s) sum(strata == s & case == 0)))
-    
-    # Loop through each unique strata
-    for (s in unique_strata) {
-      # Get the indices for case days and control days in the current strata
-      case_day_strata <- which(strata == s & case > 0)
-      control_day_strata <- which(strata == s & case == 0)
-      
-      # Initialize the control_day matrix for this strata
-      num_strata <- length(case_day_strata)
-      N <- max_N
-      control_day_matrix <- matrix(0, nrow = num_strata, ncol = N + 1)
-      
-      # Populate the control_day matrix
-      for (i in seq_along(case_day_strata)) {
-        control_day_matrix[i, 1] <- case_day_strata[i]
-        control_day_matrix[i, 2:(length(control_day_strata) + 1)] <- control_day_strata
-      }
-      
-      # Add this strata's control_days matrix to the list
-      control_day_list[[as.character(s)]] <- control_day_matrix
+
+    if(!is.numeric(count) || length(count) != nrow(data)){
+      stop("Case-crossover counts must be a numeric vector with one value per row.")
     }
-    control_days <- do.call(rbind, control_day_list)
-    
-    tmbdat$control_days <- control_days
-    tmbdat$case_day <- case_day
-    tmbdat$count <- count
+    if(any(!is.finite(count))){
+      stop("Case-crossover counts must be finite.")
+    }
+    if(any(count < 0)){
+      stop("Case-crossover counts must be nonnegative.")
+    }
+    if(any(abs(count - round(count)) > sqrt(.Machine$double.eps))){
+      stop("Case-crossover counts must be whole numbers.")
+    }
+
+    count <- as.numeric(round(count))
+    tmbdat$y <- count
+
+    unique_strata <- unique(strata)
+    max_N <- max(sapply(unique_strata, function(s) sum(strata == s)))
+    stratum_members <- matrix(0L, nrow = length(unique_strata), ncol = max_N)
+    stratum_count <- numeric(length(unique_strata))
+
+    for (i in seq_along(unique_strata)) {
+      rows <- which(strata == unique_strata[[i]])
+      stratum_members[i, seq_along(rows)] <- rows
+      stratum_count[i] <- sum(count[rows])
+    }
+
+    tmbdat$stratum_members <- stratum_members
+    tmbdat$stratum_count <- stratum_count
   }
   
   tmbparams <- list(
@@ -304,7 +303,12 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
     }
 
   }
-  return(list(mod = mod, w_count = w_count))
+  return(list(
+    mod = mod,
+    w_count = w_count,
+    family_sd_known = family_sd_known,
+    family_sd_value = family_sd_value
+  ))
 }
 
 
@@ -320,10 +324,16 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
 #' @param data A dataframe that contains the response variable and other covariates mentioned in the formula.
 #' @param method The inference method used in the model. By default, the method is set to be "aghq".
 #' @param family The family of response used in the model. By default, the family is set to be "gaussian".
-#' @param control.family Parameters used to specify the priors for the family parameters, such as the standard deviation parameter of Gaussian family. For example control.family = 1 in the Gaussian family corresponds to an Exponential prior to the standard deviation parameter of the Gaussian noise with median 1. When left unspecified, the default prior is an Exponential prior with median 1.
+#' @param control.family Parameters used to specify the family-level behavior.
+#'   For Gaussian models, `control.family = list(sd.prior = ...)` keeps the
+#'   prior-based observation SD pathway, while `control.family = list(sd = value)`
+#'   fixes the Gaussian observation SD at a known value.
 #' @param control.fixed Parameters used to specify the priors for the fixed effects. For example control.fixed = list(intercept = list(prec = 0.001, mean = 0)) will setup the prior N(0,1/0.001) for the intercept parameter. When left unspecified, all fixed effect parameters will be assigned independent N(0,1/0.001) priors. 
+#' @param aghq_k Number of quadrature points for adaptive Gauss-Hermite quadrature when `method = "aghq"`.
 #' @param size The name of the size variable, should be one of the variables in `data`. The default value is "NULL", corresponding to a vector of 1s. This is only used for the Binomial family, and denotes the number of binomial trails.
 #' @param cens The name of the right-censoring indicator, should be one of the variables in `data`. The default value is "NULL". This is only used for the CoxPH family.
+#' @param weight Optional name of a count/weight variable in `data`. For case-crossover models, this supplies multinomial counts within strata; when omitted, the response variable is used as the count.
+#' @param strata Name of the strata variable in `data`. Required for case-crossover models.
 #' @param M The number of posterior samples to be taken, by default is 3000.
 #' @param customized_template The name of the customized cpp template that the user wants to use instead. By default this is NULL, and the cpp template `BayesGP` will be used.
 #' @param Customized_RE The list that contains the compute_B and compute_P functions for the customized random effect. By default, this is NULL and there is not customized random effect in the model.
@@ -332,9 +342,28 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
 #'   Defaults to `parent.frame()`, which refers to the environment from which the function was called.
 #'   This allows the function to access variables that are defined in the calling function's scope.
 #' @param extra_theta_num An integer number to indicate the extra number of parameters required in the 'theta' vector. Should only be specified when using customized template.
-#' @return A list that contains following items: the S4 objects for the random effects (instances), concatenated design matrix for
-#' the fixed effects (design_mat_fixed), fitted aghq (mod) and indexes to partition the posterior samples
-#' (boundary_samp_indexes, random_samp_indexes and fixed_samp_indexes).
+#' @details
+#'   BayesGP supports smooth terms through `f()`. Near-monotone `mgp` and
+#'   `tiwp2` terms default to
+#'   `computation = "fem"` and can use `computation = "state-space"` when an
+#'   exact support-grid representation is desired. An exact state-space
+#'   representation is also available for native `iwp` terms when `order = 2`.
+#'   Exact state-space fits can only be predicted on the support grid supplied
+#'   during fitting; use `grid = ...` inside `f()` when predictions are needed
+#'   at additional locations. For near-monotone FEM terms, use
+#'   `region = c(left, right)` inside `f()` to set the continuous basis domain
+#'   for prediction outside the observed range. For near-monotone `mgp` and
+#'   `tiwp2` terms, `c` is specified on the original input scale in the base
+#'   model `m(x) = (x + c)^((a - 1) / a)` or `m(x) = log(x + c)` when `a = 1`;
+#'   any centering around `initial_location` is handled internally. If `c` is
+#'   omitted, BayesGP chooses a domain-aware default that makes `x + c`
+#'   strictly positive over the term domain.
+#'
+#' @return A list that contains following items: the S4 objects for the random
+#'   effects (instances), concatenated design matrix for the fixed effects
+#'   (design_mat_fixed), fitted aghq (mod) and indexes to partition the
+#'   posterior samples (boundary_samp_indexes, random_samp_indexes and
+#'   fixed_samp_indexes).
 #'
 #' @export
 model_fit <- function(formula, data, method = "aghq", family = "gaussian", control.family, control.fixed, aghq_k = 4, size = NULL, cens = NULL, weight = NULL, strata = NULL, M = 3000, customized_template = NULL, Customized_RE = NULL, option_list = list(), envir = parent.frame(), extra_theta_num = NULL) {
@@ -346,6 +375,8 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
   offset_effects <- parse_result$offset_effects
   
   instances <- list()
+  near_mono_meta <- list()
+  exact_iwp_meta <- list()
   design_mat_fixed <- list()
   family = tolower(family)
   family_is_coxph <- FALSE
@@ -358,52 +389,7 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
   if(family == "casecrossover" || family == "cc"){
     family_is_cc <- TRUE
   }
-  if (missing(control.family)) {
-    control.family <- list(sd.prior = list(prior = "exp", param = list(u = 1, alpha = 0.5)))
-  }
-  if(family == "gaussian"){
-    if (is.null(control.family$sd.prior)) {
-      control.family$sd.prior <- eval(control.family$prior, envir = envir)
-      if(is.null(control.family$sd.prior)){
-        control.family$sd.prior <- list(prior = "exp", param = list(u = 1, alpha = 0.5))
-      }
-    }
-    if (length(control.family$sd.prior) == 1){
-      if(is.numeric(control.family$sd.prior)){
-        control.family$sd.prior <- list(prior = "exp", param = list(u = as.numeric(control.family$sd.prior), alpha = 0.5))
-      }
-    } 
-    
-    if(!"prior" %in% names(control.family$sd.prior)){
-      control.family$sd.prior$prior <- "exp"
-    }
-    if(!"param" %in% names(control.family$sd.prior)){
-      stop("If sd.prior is provided as a list, it must contains a list called param.")
-    }else{
-      if(length(control.family$sd.prior$param) == 1){
-        control.family$sd.prior$param <- list(u = control.family$sd.prior$param[[1]], alpha = 0.5)
-      }
-      else{
-        control.family$sd.prior$param <- list(u = control.family$sd.prior$param$u, alpha = control.family$sd.prior$param$alpha)
-        if(is.null(control.family$sd.prior$param$alpha)){
-          warnings("The value of alpha is not provided in control.family$sd.prior$param: automatically filled with 0.5.")
-          control.family$sd.prior$param$alpha <- 0.5
-        }
-        if(is.null(control.family$sd.prior$param$u)){
-          stop("Error: The value of u is not provided in control.family$sd.prior$param.")
-        }
-      }
-    }
-    
-    if (control.family$sd.prior$prior != "exp" & control.family$sd.prior$prior != "Exp" & control.family$sd.prior$prior != "exponential" & control.family$sd.prior$prior != "Exponential" & control.family$sd.prior$prior != "customized") {
-      stop("Error: For each random effect, control.family$sd.prior currently only supports 'exp' (exponential), or 'customized' as prior.")
-    }
-    if(control.family$sd.prior$param$alpha > 1 | control.family$sd.prior$param$alpha < 0){
-      if(control.family$sd.prior$prior != "customized"){
-        stop("Error: The value of control.family$sd.prior$param$alpha is not specified as a probability.")
-      }
-    }
-  }
+  control.family <- normalize_family_control(control.family, family = family)
 
   # For random effects
   for (rand_effect in rand_effects) {
@@ -419,7 +405,43 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
         }
       }
     }
-    model_class <- tolower(rand_effect$model)
+    model_class <- normalize_smooth_term_model(
+      extract_term_argument(rand_effect, "model", envir = envir, default = "iid")
+    )
+
+    if(model_class %in% c("mgp", "tiwp2")){
+      built_term <- build_nearmono_instance(
+        rand_effect = rand_effect,
+        response_var = response_var,
+        data = data,
+        envir = envir
+      )
+      instances[[length(instances) + 1]] <- built_term$instance
+      near_mono_meta[[built_term$meta$component]] <- built_term$meta
+      next
+    }
+
+    if(model_class == "iwp"){
+      requested_iwp_method <- resolve_computation_method(
+        computation = extract_term_argument(rand_effect, "computation", envir = envir, default = NULL),
+        method = extract_term_argument(rand_effect, "method", envir = envir, default = NULL),
+        default = NULL,
+        allowed = c("state-space", "fem"),
+        label = "IWP smooth terms"
+      )
+
+      if(identical(requested_iwp_method, "state-space")){
+        built_term <- build_iwp_state_space_instance(
+          rand_effect = rand_effect,
+          response_var = response_var,
+          data = data,
+          envir = envir
+        )
+        instances[[length(instances) + 1]] <- built_term$instance
+        exact_iwp_meta[[built_term$meta$component]] <- built_term$meta
+        next
+      }
+    }
     
     sd.prior <- eval(rand_effect$sd.prior, envir = envir)
     if (is.null(sd.prior)) {
@@ -475,7 +497,11 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
       else{
         k <- NULL
       }
-      initial_location <- eval(rand_effect$initial_location, envir = envir)[1]
+      initial_location <- if("initial_location" %in% names(rand_effect)){
+        eval(rand_effect$initial_location, envir = envir)[1]
+      } else {
+        NULL
+      }
       if (!(is.null(k)) && k < 3) {
         stop("Error: parameter <k> in the random effect part should be >= 3.")
       }
@@ -549,10 +575,12 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
       instance <- new(model_class,
         response_var = response_var,
         smoothing_var = smoothing_var, order = order,
-        knots = knots, observed_x = observed_x, sd.prior = sd.prior, boundary.prior = boundary.prior, data = data
+        knots = knots, k = length(knots),
+        observed_x = observed_x, sd.prior = sd.prior, boundary.prior = boundary.prior, data = data
       )
       # Case for iwp
       instance@initial_location <- initial_location
+      instance@region <- region
       instance@X <- global_poly(instance)[, -1, drop = FALSE]
       instance@B <- local_poly(instance)
       instance@P <- compute_weights_precision(instance)
@@ -807,8 +835,21 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
     random_samp_indexes = coef_samp_indexes,
     fixed_samp_indexes = fixed_samp_indexes,
     family = family,
+    family_info = build_family_fit_info(
+      family = family,
+      data = data,
+      response_var = response_var,
+      size = size,
+      cens = cens,
+      weight = weight,
+      strata = strata
+    ),
     control.family = control.family,
-    control.fixed = control.fixed
+    control.fixed = control.fixed,
+    near_mono_meta = near_mono_meta,
+    exact_iwp_meta = exact_iwp_meta,
+    family_sd_known = result_by_method$family_sd_known,
+    family_sd_value = result_by_method$family_sd_value
   )
   
   if(any(class(fit_result$mod) == "aghq")){
@@ -903,6 +944,3 @@ model_fit_loop <- function(loop_holder = "LOOP", loop_values, prior_func = funct
   data.frame(var = loop_values, post = post, log_ml = unlist(log_ml))
   
 }
-
-
-

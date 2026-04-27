@@ -7,6 +7,8 @@
 post_table(object, quantiles = c(0.025, 0.975), digits = 3)
 }
 \arguments{
+\item{object}{The fitted object from the function `model_fit`.}
+
 \item{quantiles}{The specified quantile to display the posterior summary, default is c(0.025, 0.975).}
 
 \item{digits}{The significant digits to be kept in the result, default is 3.}

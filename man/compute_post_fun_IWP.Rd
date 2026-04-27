@@ -51,7 +51,7 @@ plot(result[, 2] ~ result$x, type = "l", ylim = c(-0.3, 0.3))
 for (i in 1:9) {
   lines(result[, (i + 1)] ~ result$x, lty = "dashed", ylim = c(-0.1, 0.1))
 }
-global_samps <- matrix(rnorm(n = (2 * 10), sd = 0.1), ncol = 10)
+global_samps <- matrix(rnorm(n = 10, sd = 0.1), ncol = 10)
 result <- compute_post_fun_iwp(global_samps = global_samps, samps = samps, knots = knots, refined_x = seq(0, 1, by = 0.1), p = 2)
 plot(result[, 2] ~ result$x, type = "l", ylim = c(-0.3, 0.3))
 for (i in 1:9) {

@@ -18,5 +18,5 @@ size (k-1) by (k-1).
 Constructing the precision matrix given the knot sequence (helper)
 }
 \examples{
-compute_weights_precision(x = c(0,0.2,0.4,0.6,0.8))
+compute_weights_precision_helper(x = c(0,0.2,0.4,0.6,0.8))
 }

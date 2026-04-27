@@ -33,4 +33,7 @@ A string representing the path to the temporary .so (or .dll) file
 This function allows for the dynamic modification of a C++ template
 within the BayesGP package. Users can specify custom content for the 
 log-likelihood as well as the log-prior of the variance parameter in the template.
+The copied template matches the package's compiled template, including fixed
+Gaussian observation-SD handling and all Gaussian prior normalizing constants
+used in log marginal likelihood calculations.
 }

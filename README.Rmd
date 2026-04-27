@@ -29,6 +29,65 @@ You can install the development version of BayesGP from [GitHub](https://github.
 devtools::install_github("https://github.com/Bayes-GP/BayesGP/tree/development")
 ```
 
+## Example: near-monotone models with known Gaussian SD
+
+BayesGP also supports near-monotone smooth terms directly in the core formula
+interface:
+
+- `f(..., model = "mgp")`, using FEM by default
+- `f(..., model = "tiwp2")`, using FEM by default
+
+At the term level, `computation` is the only supported argument for choosing
+between FEM and exact state-space representations. The top-level
+`model_fit(method = ...)` argument is reserved for the inference algorithm.
+Use `computation = "state-space"` together with `grid = ...` when exact
+support-grid computation is desired.
+
+When the Gaussian observation standard deviation is known, it can be fixed
+through `control.family = list(sd = value)`.
+
+```{r}
+library(BayesGP)
+
+x <- seq(0.1, 2, length.out = 12)
+truth <- sqrt(x + 1)
+y <- truth + rnorm(length(x), sd = 0.1)
+
+data_full <- data.frame(x = x, y = y)
+data_train <- data_full[1:8, , drop = FALSE]
+
+fit_mgp <- model_fit(
+  formula = y ~ f(
+    x,
+    model = "mgp",
+    a = 2,
+    c = 1,
+    region = range(data_full$x),
+    normalized_boundary = TRUE,
+    sd.prior = list(prior = "exp", param = list(u = 1, alpha = 0.5))
+  ),
+  data = data_train,
+  family = "gaussian",
+  control.family = list(sd = 0.1),
+  M = 100
+)
+
+posterior_draws <- predict(
+  fit_mgp,
+  newdata = data_full,
+  variable = "x",
+  only.samples = TRUE
+)
+
+posterior_summary <- predict(
+  fit_mgp,
+  newdata = data_full,
+  variable = "x"
+)
+
+head(posterior_summary)
+```
+
 ## Example: sGP
 
 In this example, we will use the `lynx` dataset as an example, which can be accessed directly from R. Let's load the dataset and visualize it:
@@ -153,6 +212,3 @@ predict_f2nd %>% ggplot(aes(x = t)) + geom_line(aes(y = mean), lty = "solid") +
   geom_line(aes(y = `q0.975`), lty = "dashed") +
   theme_classic()
 ```
-
-
-

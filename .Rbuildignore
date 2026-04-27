@@ -3,3 +3,11 @@
 ^README\.Rmd$
 ^doc$
 ^Meta$
+^.*[.]Rcheck$
+^[.][.]Rcheck$
+^src/.*[.](o|so|dll|dylib)$
+^src/symbols[.]rds$
+^build/[.]Rapp[.]history$
+^inst/[.]DS_Store$
+^R/[.]Rhistory$
+^vignettes/[.]Rapp[.]history$

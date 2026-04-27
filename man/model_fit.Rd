@@ -33,13 +33,22 @@ model_fit(
 
 \item{family}{The family of response used in the model. By default, the family is set to be "gaussian".}
 
-\item{control.family}{Parameters used to specify the priors for the family parameters, such as the standard deviation parameter of Gaussian family. For example control.family = 1 in the Gaussian family corresponds to an Exponential prior to the standard deviation parameter of the Gaussian noise with median 1. When left unspecified, the default prior is an Exponential prior with median 1.}
+\item{control.family}{Parameters used to specify the family-level behavior.
+For Gaussian models, `control.family = list(sd.prior = ...)` keeps the
+prior-based observation SD pathway, while `control.family = list(sd = value)`
+fixes the Gaussian observation SD at a known value.}
 
 \item{control.fixed}{Parameters used to specify the priors for the fixed effects. For example control.fixed = list(intercept = list(prec = 0.001, mean = 0)) will setup the prior N(0,1/0.001) for the intercept parameter. When left unspecified, all fixed effect parameters will be assigned independent N(0,1/0.001) priors.}
+
+\item{aghq_k}{Number of quadrature points for adaptive Gauss-Hermite quadrature when `method = "aghq"`.}
 
 \item{size}{The name of the size variable, should be one of the variables in `data`. The default value is "NULL", corresponding to a vector of 1s. This is only used for the Binomial family, and denotes the number of binomial trails.}
 
 \item{cens}{The name of the right-censoring indicator, should be one of the variables in `data`. The default value is "NULL". This is only used for the CoxPH family.}
+
+\item{weight}{Optional name of a count/weight variable in `data`. For case-crossover models, this supplies multinomial counts within strata; when omitted, the response variable is used as the count.}
+
+\item{strata}{Name of the strata variable in `data`. Required for case-crossover models.}
 
 \item{M}{The number of posterior samples to be taken, by default is 3000.}
 
@@ -56,12 +65,31 @@ This allows the function to access variables that are defined in the calling fun
 \item{extra_theta_num}{An integer number to indicate the extra number of parameters required in the 'theta' vector. Should only be specified when using customized template.}
 }
 \value{
-A list that contains following items: the S4 objects for the random effects (instances), concatenated design matrix for
-the fixed effects (design_mat_fixed), fitted aghq (mod) and indexes to partition the posterior samples
-(boundary_samp_indexes, random_samp_indexes and fixed_samp_indexes).
+A list that contains following items: the S4 objects for the random
+  effects (instances), concatenated design matrix for the fixed effects
+  (design_mat_fixed), fitted aghq (mod) and indexes to partition the
+  posterior samples (boundary_samp_indexes, random_samp_indexes and
+  fixed_samp_indexes).
 }
 \description{
 Fitting a hierarchical model based on the provided formula, data and parameters such as type of method and family of response.
 Returning the S4 objects for the random effects, concatenated design matrix for the intercepts and fixed effects, fitted model,
 indexes to partition the posterior samples.
+}
+\details{
+BayesGP supports smooth terms through `f()`. Near-monotone `mgp` and
+  `tiwp2` terms default to
+  `computation = "fem"` and can use `computation = "state-space"` when an
+  exact support-grid representation is desired. An exact state-space
+  representation is also available for native `iwp` terms when `order = 2`.
+  Exact state-space fits can only be predicted on the support grid supplied
+  during fitting; use `grid = ...` inside `f()` when predictions are needed
+  at additional locations. For near-monotone FEM terms, use
+  `region = c(left, right)` inside `f()` to set the continuous basis domain
+  for prediction outside the observed range. For near-monotone `mgp` and
+  `tiwp2` terms, `c` is specified on the original input scale in the base
+  model `m(x) = (x + c)^((a - 1) / a)` or `m(x) = log(x + c)` when `a = 1`;
+  any centering around `initial_location` is handled internally. If `c` is
+  omitted, BayesGP chooses a domain-aware default that makes `x + c`
+  strictly positive over the term domain.
 }

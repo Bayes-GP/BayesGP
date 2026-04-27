@@ -2,13 +2,15 @@
 % Please edit documentation in R/01_utility.R
 \name{compute_weights_precision}
 \alias{compute_weights_precision}
+\alias{compute_weights_precision,iwp-method}
 \title{Constructing the precision matrix given the knot sequence}
 \usage{
 compute_weights_precision(object)
+
+\S4method{compute_weights_precision}{iwp}(object)
 }
 \arguments{
-\item{x}{A vector of knots used to construct the O-spline basis, first knot should be viewed as "0",
-the reference starting location. These k knots will define (k-1) basis function in total.}
+\item{object}{An `iwp` smooth-term object.}
 }
 \value{
 A precision matrix of the corresponding basis function, should be diagonal matrix with
