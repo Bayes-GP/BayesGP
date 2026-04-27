@@ -13,12 +13,12 @@ Bayesian hierarchical models.
 
 ## Installation
 
-You can install the development version of BayesGP from
+You can install this near-monotone usability branch of BayesGP from
 [GitHub](https://github.com/) with:
 
 ``` r
 # install.packages("devtools")
-devtools::install_github("https://github.com/Bayes-GP/BayesGP/tree/development")
+devtools::install_github("Bayes-GP/BayesGP", ref = "bayesgp-near-monotone-usability")
 ```
 
 ## Example: near-monotone models with known Gaussian SD
