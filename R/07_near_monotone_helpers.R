@@ -584,6 +584,123 @@ extract_term_argument <- function(rand_effect, name, envir = parent.frame(), def
   default
 }
 
+validate_model_fit_data <- function(parse_result, data, family, size = NULL,
+                                    cens = NULL, weight = NULL, strata = NULL,
+                                    envir = parent.frame()){
+  if(!is.data.frame(data)){
+    stop("`data` must be a data frame.", call. = FALSE)
+  }
+
+  family <- tolower(family)
+  columns <- c(
+    as.character(parse_result$response),
+    vapply(
+      parse_result$rand_effects,
+      model_fit_smoothing_column,
+      character(1),
+      envir = envir
+    ),
+    vapply(parse_result$fixed_effects, model_fit_column_name, character(1)),
+    vapply(parse_result$offset_effects, function(offset_effect){
+      model_fit_column_name(offset_effect[[2]])
+    }, character(1))
+  )
+
+  if(identical(family, "binomial")){
+    columns <- c(columns, model_fit_optional_column(size, data))
+  }
+  if(family %in% c("cox", "coxph")){
+    columns <- c(columns, model_fit_optional_column(cens, data))
+  }
+  if(family %in% c("casecrossover", "cc")){
+    columns <- c(
+      columns,
+      model_fit_optional_column(weight, data),
+      model_fit_optional_column(strata, data)
+    )
+  }
+
+  columns <- unique(columns[nzchar(columns)])
+  for(column in columns){
+    if(column %in% names(data)){
+      validate_model_fit_data_column(data[[column]], column)
+    }
+  }
+
+  invisible(TRUE)
+}
+
+model_fit_smoothing_column <- function(rand_effect, envir = parent.frame()){
+  for(name in c("smoothing_var", "x")){
+    if(name %in% names(rand_effect)){
+      column <- model_fit_column_name(rand_effect[[name]], envir = envir)
+      if(nzchar(column)){
+        return(column)
+      }
+    }
+  }
+
+  if(length(rand_effect) >= 2){
+    column <- model_fit_column_name(rand_effect[[2]], envir = envir)
+    if(nzchar(column)){
+      return(column)
+    }
+  }
+
+  ""
+}
+
+model_fit_column_name <- function(x, envir = parent.frame()){
+  if(is.null(x) || length(x) == 0){
+    return("")
+  }
+  if(is.character(x) && length(x) == 1){
+    return(x)
+  }
+  if(is.name(x)){
+    return(as.character(x))
+  }
+
+  evaluated <- tryCatch(eval(x, envir = envir), error = function(e) NULL)
+  if(is.character(evaluated) && length(evaluated) == 1){
+    return(evaluated)
+  }
+
+  toString(x)
+}
+
+model_fit_optional_column <- function(column, data){
+  if(is.null(column) || length(column) == 0){
+    return("")
+  }
+
+  column <- as.character(column)[[1]]
+  if(column %in% names(data)){
+    column
+  } else {
+    ""
+  }
+}
+
+validate_model_fit_data_column <- function(values, column){
+  invalid <- if(is.numeric(values)){
+    !is.finite(values)
+  } else {
+    is.na(values)
+  }
+
+  if(any(invalid)){
+    stop(
+      "BayesGP input data contains missing or non-finite values in column '",
+      column,
+      "'.",
+      call. = FALSE
+    )
+  }
+
+  invisible(TRUE)
+}
+
 build_fixed_design <- function(parse_result, data, family){
   fixed_effects <- parse_result$fixed_effects
   offset_effects <- parse_result$offset_effects

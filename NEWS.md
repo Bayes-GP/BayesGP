@@ -1,3 +1,10 @@
+# BayesGP (development version)
+
+* Bug fix:
+- `model_fit()` now validates model input columns before fitting and reports
+  missing or non-finite values with the offending column name, avoiding opaque
+  downstream optimizer failures.
+
 # BayesGP 0.1.2 (2024-06-16)
 
 * Bug fix: 

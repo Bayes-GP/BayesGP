@@ -379,6 +379,16 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
   exact_iwp_meta <- list()
   design_mat_fixed <- list()
   family = tolower(family)
+  validate_model_fit_data(
+    parse_result = parse_result,
+    data = data,
+    family = family,
+    size = size,
+    cens = cens,
+    weight = weight,
+    strata = strata,
+    envir = envir
+  )
   family_is_coxph <- FALSE
   if(family == "cox" || family == "coxph"){
     family_is_coxph <- TRUE
