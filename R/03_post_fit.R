@@ -555,15 +555,7 @@ plot.FitResult <- function(x, ...) {
   object <- x
   ### Step 1: predict with newdata = NULL
   for (instance in object$instances) { ## for each variable in model_fit
-    if (class(instance) == "iwp") {
-      predict_result <- predict(object, variable = as.character(instance@smoothing_var))
-      matplot(
-        x = predict_result[,1], y = predict_result[, c("q0.5", "q0.025", "q0.975")], lty = c(1, 2, 2), lwd = c(2, 1, 1),
-        col = "black", type = "l",
-        ylab = "effect", xlab = as.character(instance@smoothing_var)
-      )
-    }
-    if (class(instance) == "sgp") {
+    if (smooth_instance_class(instance) %in% c("iwp", "sgp", "mgp", "tiwp2")) {
       predict_result <- predict(object, variable = as.character(instance@smoothing_var))
       matplot(
         x = predict_result[,1], y = predict_result[, c("q0.5", "q0.025", "q0.975")], lty = c(1, 2, 2), lwd = c(2, 1, 1),
@@ -740,15 +732,106 @@ aghq_density_interpolation <- function(theta_marg){
   "spline"
 }
 
+resolve_density_step <- function(instance, h = NULL){
+  step_value <- h
+  if(is.null(step_value)){
+    step_value <- instance@sd.prior$h
+  }
+  if(is.null(step_value)){
+    step_value <- instance@sd.prior$step
+  }
+  if(is.null(step_value)){
+    return(NULL)
+  }
+  if(!is.numeric(step_value) || length(step_value) != 1 || !is.finite(step_value) || step_value <= 0){
+    stop("`h` must be a single positive number for PSD densities.")
+  }
+  as.numeric(step_value)
+}
+
+resolve_nearmono_density_x <- function(instance, metadata, x = NULL){
+  x_value <- x
+  if(is.null(x_value)){
+    x_value <- instance@sd.prior$x
+  }
+  if(is.null(x_value)){
+    stop(
+      "Near-monotone PSD densities require `x`, unless the fitted ",
+      "`sd.prior` stored an `x` location."
+    )
+  }
+  if(!is.numeric(x_value) || length(x_value) != 1 || !is.finite(x_value)){
+    stop("`x` must be a single finite number for near-monotone PSD densities.")
+  }
+  as.numeric(x_value)
+}
+
+component_psd_correction <- function(object, instance, component, h = NULL, x = NULL){
+  metadata <- object$near_mono_meta[[component]]
+  step_value <- resolve_density_step(instance, h = h)
+
+  if(is.null(step_value)){
+    if(!is.null(x)){
+      stop("`h` must be supplied when `x` is supplied for a PSD density.")
+    }
+    return(NULL)
+  }
+
+  if(!is.null(metadata)){
+    x_value <- resolve_nearmono_density_x(instance, metadata, x = x)
+    c_original <- if(!is.null(metadata$c)) metadata$c else metadata$shift
+    if(x_value + c_original <= 0 || x_value + step_value + c_original <= 0){
+      stop("Near-monotone PSD densities require `x + c` and `x + h + c` to be positive on the original scale.")
+    }
+    internal_shift <- if(!is.null(metadata$internal_shift)) metadata$internal_shift else metadata$shift
+    return(PSD_compute(
+      model = metadata$model_name,
+      h = step_value,
+      x = x_value - metadata$reference_location,
+      c = internal_shift,
+      a = metadata$curvature,
+      sd = 1
+    ))
+  }
+
+  if(!is.null(x)){
+    stop("`x` is only supported for near-monotone `mgp` and `tiwp2` PSD densities.")
+  }
+  if(is_native_iwp_instance(instance)){
+    return(PSD_compute_iwp(h = step_value, p = instance@order, sd = 1))
+  }
+  if(is_sgp_instance(instance)){
+    return(PSD_compute_sgp(h = step_value, a = instance@a, m = instance@m, sd = 1))
+  }
+  stop("PSD densities are currently defined for iwp, sGP, mgp, and tiwp2 smooth terms.")
+}
+
+add_psd_density <- function(postsigma, correction){
+  if(is.null(correction)){
+    return(postsigma)
+  }
+  cbind(
+    postsigma,
+    data.frame(
+      PSD = postsigma$SD * correction,
+      post.PSD = postsigma$post / correction,
+      prior.PSD = postsigma$prior / correction
+    )
+  )
+}
+
 #' Obtain the posterior density of a variance parameter in the fitted model
 #' 
 #' @param object The fitted object from the function `model_fit`.
 #' @param component The component of the variance parameter that you want to show. By default this is `NULL`, indicating the family.sd is of interest.
 #' @param h For PSD, the unit of predictive step to consider, by default is set to `NULL`, indicating the result is using the same `h` as in the model fitting.
+#' @param x For near-monotone PSD densities, the original-scale starting
+#'   location for the predictive step. By default this is `NULL`, indicating
+#'   the result uses the same `x` as in the model fitting when available.
 #' @param theta_logprior The log prior function used on the selected variance parameter. By default is `NULL`, and the current Exponential prior will be used.
 #' @param MCMC_samps_only For model fitted with MCMC, whether only the posterior samples are needed.
 #' @export
-var_density <- function(object, component = NULL, h = NULL, theta_logprior = NULL, MCMC_samps_only = FALSE){
+var_density <- function(object, component = NULL, h = NULL, x = NULL, theta_logprior = NULL, MCMC_samps_only = FALSE){
   postsigma <- NULL
   if(is.null(component) && isTRUE(object$control.family$sd_known)){
     stop("The Gaussian observation SD is fixed in this fitted model, so there is no family SD posterior density.")
@@ -789,32 +872,8 @@ var_density <- function(object, component = NULL, h = NULL, theta_logprior = NUL
           postsigma <- data.frame(SD = logpostsigma$transparam, 
                                   post = logpostsigma$pdf_transparam,
                                   prior = priorfuncsigma(logpostsigma$transparam, prior_alpha = object$instances[[i]]@sd.prior$param$alpha, prior_u = object$instances[[i]]@sd.prior$param$u))
-          
-          if(is.null(h)){
-            if(!is.null(instance@sd.prior$h)){
-              h <- instance@sd.prior$h
-            }
-          }
-          if(!is.null(h)){
-            if(class(instance) == "iwp"){
-              p <- instance@order
-              correction <- sqrt((h^((2 * p) - 1)) / (((2 * p) - 1) * (factorial(p - 1)^2)))
-            }
-            else if(class(instance) == "sgp"){
-              correction <- 0
-              for (j in 1:instance@m) {
-                correction <- correction + compute_d_step_sgpsd(d = h, a = (j*instance@a))
-              }
-            }
-            else{
-              stop("PSD is currently on defined on iwp and sGP, please specify h = NULL for other type of random effect")
-            }
-            postsigmaPSD <- data.frame(PSD = postsigma$SD * correction, 
-                                       post.PSD = postsigma$post / correction,
-                                       prior.PSD = postsigma$prior / correction)
-            
-            postsigma <- cbind(postsigma, postsigmaPSD)
-          }
+          correction <- component_psd_correction(object, instance, component, h = h, x = x)
+          postsigma <- add_psd_density(postsigma, correction)
           
         }
       }
@@ -845,32 +904,11 @@ var_density <- function(object, component = NULL, h = NULL, theta_logprior = NUL
           postsigma <- data.frame(SD = sigma_marg_density$x, 
                                   post = sigma_marg_density$y,
                                   prior = priorfuncsigma(sigma_marg_density$x, prior_alpha = object$instances[[i]]@sd.prior$param$alpha, prior_u = object$instances[[i]]@sd.prior$param$u))
-          if(is.null(h)){
-            if(!is.null(instance@sd.prior$h)){
-              h <- instance@sd.prior$h
-            }
-          }
-          if(!is.null(h)){
-            if(class(instance) == "iwp"){
-              p <- instance@order
-              correction <- sqrt((h^((2 * p) - 1)) / (((2 * p) - 1) * (factorial(p - 1)^2)))
-            }
-            else if(class(instance) == "sgp"){
-              correction <- 0
-              for (j in 1:instance@m) {
-                correction <- correction + compute_d_step_sgpsd(d = h, a = (j*instance@a))
-              }
-            }
-            else{
-              stop("PSD is currently on defined on iwp and sGP, please specify h = NULL for other type of random effect")
-            }
+          correction <- component_psd_correction(object, instance, component, h = h, x = x)
+          if(!is.null(correction)){
             sigmaPSD_marg_samps <- sigma_marg_samps * correction
-            postsigmaPSD <- data.frame(PSD = postsigma$SD * correction, 
-                                       post.PSD = postsigma$post / correction,
-                                       prior.PSD = postsigma$prior / correction)
-            
-            postsigma <- cbind(postsigma, postsigmaPSD)
           }
+          postsigma <- add_psd_density(postsigma, correction)
           
         }
       }
@@ -892,10 +930,13 @@ var_density <- function(object, component = NULL, h = NULL, theta_logprior = NUL
 #' @param object The fitted object from the function `model_fit`.
 #' @param component The component of the variance parameter that you want to show. By default this is `NULL`, indicating the family.sd is of interest.
 #' @param h For PSD, the unit of predictive step to consider, by default is set to `NULL`, indicating the result is using the same `h` as in the model fitting.
+#' @param x For near-monotone PSD densities, the original-scale starting
+#'   location for the predictive step. By default this is `NULL`, indicating
+#'   the result uses the same `x` as in the model fitting when available.
 #' @param theta_logprior The log prior function used on the selected variance parameter. By default is `NULL`, and the current Exponential prior will be used.
 #' @export
-var_plot <- function(object, component = NULL, h = NULL, theta_logprior = NULL){
-  hyper_result <- var_density(object = object, component = component, h = h, theta_logprior = theta_logprior, MCMC_samps_only = FALSE)
+var_plot <- function(object, component = NULL, h = NULL, x = NULL, theta_logprior = NULL){
+  hyper_result <- var_density(object = object, component = component, h = h, x = x, theta_logprior = theta_logprior, MCMC_samps_only = FALSE)
   if("PSD" %in% names(hyper_result)){
     matplot(hyper_result[,'PSD'], hyper_result[,c('post.PSD','prior.PSD')], lty=c(1,2), type = "l", xlab = "PSD", ylab = "Density")
     legend('topright', lty=c(1,2), col=c('black','red'), legend=c('post','prior'), bty = "n")

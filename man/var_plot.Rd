@@ -4,7 +4,7 @@
 \alias{var_plot}
 \title{Plot the posterior density of a variance parameter in the fitted model}
 \usage{
-var_plot(object, component = NULL, h = NULL, theta_logprior = NULL)
+var_plot(object, component = NULL, h = NULL, x = NULL, theta_logprior = NULL)
 }
 \arguments{
 \item{object}{The fitted object from the function `model_fit`.}
@@ -12,6 +12,10 @@ var_plot(object, component = NULL, h = NULL, theta_logprior = NULL)
 \item{component}{The component of the variance parameter that you want to show. By default this is `NULL`, indicating the family.sd is of interest.}
 
 \item{h}{For PSD, the unit of predictive step to consider, by default is set to `NULL`, indicating the result is using the same `h` as in the model fitting.}
+
+\item{x}{For near-monotone PSD densities, the original-scale starting
+location for the predictive step. By default this is `NULL`, indicating
+the result uses the same `x` as in the model fitting when available.}
 
 \item{theta_logprior}{The log prior function used on the selected variance parameter. By default is `NULL`, and the current Exponential prior will be used.}
 }

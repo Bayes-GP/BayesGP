@@ -8,6 +8,7 @@ var_density(
   object,
   component = NULL,
   h = NULL,
+  x = NULL,
   theta_logprior = NULL,
   MCMC_samps_only = FALSE
 )
@@ -18,6 +19,10 @@ var_density(
 \item{component}{The component of the variance parameter that you want to show. By default this is `NULL`, indicating the family.sd is of interest.}
 
 \item{h}{For PSD, the unit of predictive step to consider, by default is set to `NULL`, indicating the result is using the same `h` as in the model fitting.}
+
+\item{x}{For near-monotone PSD densities, the original-scale starting
+location for the predictive step. By default this is `NULL`, indicating
+the result uses the same `x` as in the model fitting when available.}
 
 \item{theta_logprior}{The log prior function used on the selected variance parameter. By default is `NULL`, and the current Exponential prior will be used.}
 

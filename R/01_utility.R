@@ -369,6 +369,45 @@ setClass("iwp", slots = list(
   region = "numeric"
 ))
 
+near_monotone_slots <- list(
+  response_var = "name", smoothing_var = "name",
+  k = "numeric", observed_x = "numeric", sd.prior = "list",
+  psd.prior = "list",
+  boundary.prior = "list", data = "data.frame", X = "matrix",
+  B = "matrix", P = "matrix", initial_location = "ANY",
+  region = "numeric"
+)
+
+# Create a class for mgp using S4
+setClass("mgp", slots = near_monotone_slots)
+
+# Create a class for tiwp2 using S4
+setClass("tiwp2", slots = near_monotone_slots)
+
+smooth_instance_class <- function(instance){
+  class(instance)[1]
+}
+
+is_native_iwp_instance <- function(instance){
+  identical(smooth_instance_class(instance), "iwp")
+}
+
+is_sgp_instance <- function(instance){
+  identical(smooth_instance_class(instance), "sgp")
+}
+
+is_nearmono_instance <- function(instance){
+  smooth_instance_class(instance) %in% c("mgp", "tiwp2")
+}
+
+has_boundary_design <- function(instance){
+  smooth_instance_class(instance) %in% c("iwp", "sgp", "mgp", "tiwp2")
+}
+
+uses_boundary_prior <- function(instance){
+  !is_native_iwp_instance(instance) || instance@order != 1
+}
+
 # Create a class for sgp using S4
 setClass("sgp", slots = list(
   response_var = "name", smoothing_var = "name", 

@@ -51,29 +51,17 @@ get_result_by_method <- function(response_var, data, instances, design_mat_fixed
   theta_count <- 0 + (family_type == 0 && !family_sd_known)
   
   for (instance in instances) {
-    # For each random effects
-    if (class(instance) == "iwp") {
+    # For each random effect
+    if (has_boundary_design(instance)) {
       X[[length(X) + 1]] <- dgTMatrix_wrapper(instance@X)
-      if(instance@order != 1){
-      for (jj in 1:length(instance@boundary.prior$prec)) {
-        betaprec[[length(betaprec) + 1]] <- instance@boundary.prior$prec[jj]
-        betamean[[length(betamean) + 1]] <- instance@boundary.prior$mean[jj]
-        if(instance@boundary.prior$prec[jj] == Inf){
-          betaprec[[length(betaprec)]] = 100000
-          X[[length(X)]][,jj] <- 0
-        }
-      }
-      }
-      w_count <- w_count + ncol(instance@X)
-    }
-    else if(class(instance) == "sgp"){
-      X[[length(X) + 1]] <- dgTMatrix_wrapper(instance@X)
-      for (jj in 1:length(instance@boundary.prior$prec)) {
-        betaprec[[length(betaprec) + 1]] <- instance@boundary.prior$prec[jj]
-        betamean[[length(betamean) + 1]] <- instance@boundary.prior$mean[jj]
-        if(instance@boundary.prior$prec[jj] == Inf){
-          betaprec[[length(betaprec)]] = 100000
-          X[[length(X)]][,jj] <- 0
+      if(uses_boundary_prior(instance)){
+        for (jj in seq_along(instance@boundary.prior$prec)) {
+          betaprec[[length(betaprec) + 1]] <- instance@boundary.prior$prec[jj]
+          betamean[[length(betamean) + 1]] <- instance@boundary.prior$mean[jj]
+          if(instance@boundary.prior$prec[jj] == Inf){
+            betaprec[[length(betaprec)]] = 100000
+            X[[length(X)]][,jj] <- 0
+          }
         }
       }
       w_count <- w_count + ncol(instance@X)
@@ -798,10 +786,7 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
   for (instance in instances) {
     sum_col_ins <- sum_col_ins + ncol(instance@B)
     rand_effects_names <- c(rand_effects_names, instance@smoothing_var)
-    if (class(instance) == "iwp") {
-      global_effects_names <- c(global_effects_names, instance@smoothing_var)
-    }
-    else if (class(instance) == "sgp") {
+    if (has_boundary_design(instance)) {
       global_effects_names <- c(global_effects_names, instance@smoothing_var)
     }
   }
@@ -811,17 +796,13 @@ model_fit <- function(formula, data, method = "aghq", family = "gaussian", contr
   cur_coef_start <- 1
   cur_coef_end <- 0
   for (instance in instances) {
-    if (class(instance) == "iwp") {
+    if (has_boundary_design(instance)) {
       cur_end <- cur_end + ncol(instance@X)
-      if (instance@order == 1) {
+      if (!uses_boundary_prior(instance) || ncol(instance@X) == 0) {
         global_samp_indexes[[length(global_samp_indexes) + 1]] <- numeric()
-      } else if (instance@order > 1) {
-        global_samp_indexes[[length(global_samp_indexes) + 1]] <- (cur_start:cur_end)
+      } else {
+        global_samp_indexes[[length(global_samp_indexes) + 1]] <- seq.int(cur_start, cur_end)
       }
-    }
-    else if (class(instance) == "sgp") {
-      cur_end <- cur_end + ncol(instance@X)
-      global_samp_indexes[[length(global_samp_indexes) + 1]] <- (cur_start:cur_end)
     }
     
     cur_coef_end <- cur_coef_end + ncol(instance@B)

@@ -70,6 +70,7 @@ test_that("known-sd gaussian path works for exact and fem near-monotone terms", 
     summary_df <- predict(fit, newdata = sim_data$data_full, variable = "x", only.samples = FALSE)
     smooth_df <- smooth_summary(fit, component = "x", refined_x = sim_data$data_full$x)
 
+    expect_equal(class(fit$instances[[1]])[1], spec$model, info = spec$name)
     expect_true(isTRUE(fit$family_sd_known), info = spec$name)
     expect_true(isTRUE(fit$control.family$sd_known), info = spec$name)
     expect_equal(fit$family_sd_value, 0.1, tolerance = 1e-12, info = spec$name)
@@ -81,6 +82,26 @@ test_that("known-sd gaussian path works for exact and fem near-monotone terms", 
     expect_false(anyNA(smooth_df$mean), info = spec$name)
     expect_error(var_density(fit), "fixed", info = spec$name)
   }
+})
+
+test_that("near-monotone plotting helpers work with model-specific classes", {
+  fit <- fit_near_mono_model(
+    model_name = "tiwp2",
+    computation_method = "fem",
+    normalized_boundary = TRUE,
+    sd_prior = list(
+      prior = "exp",
+      param = list(u = 0.7, alpha = 0.2),
+      h = 1.3,
+      x = 0.4
+    )
+  )
+
+  grDevices::pdf(NULL)
+  on.exit(grDevices::dev.off(), add = TRUE)
+
+  expect_silent(plot(fit))
+  expect_silent(var_plot(fit, component = "x"))
 })
 
 test_that("state-space predictions require the support grid when extrapolating exact fits", {
@@ -799,6 +820,60 @@ test_that("near-monotone terms convert PSD-scale sd.prior specifications interna
       info = spec$name
     )
     expect_null(instance@sd.prior$h, info = spec$name)
+  }
+})
+
+test_that("near-monotone variance densities use model-specific PSD corrections", {
+  prior_u <- 0.7
+  prior_alpha <- 0.2
+  prior_h <- 1.3
+  prior_x <- 0.4
+  override_x <- 0.8
+
+  fit_specs <- list(
+    list(name = "mgp", model = "mgp", normalized_boundary = FALSE),
+    list(name = "tiwp2", model = "tiwp2", normalized_boundary = TRUE)
+  )
+
+  for(spec in fit_specs){
+    fit <- fit_near_mono_model(
+      model_name = spec$model,
+      computation_method = "fem",
+      normalized_boundary = spec$normalized_boundary,
+      sd_prior = list(
+        prior = "exp",
+        param = list(u = prior_u, alpha = prior_alpha),
+        h = prior_h,
+        x = prior_x
+      )
+    )
+
+    instance <- fit$instances[[1]]
+    metadata <- fit$near_mono_meta$x
+    default_density <- var_density(fit, component = "x")
+    override_density <- var_density(fit, component = "x", x = override_x)
+    default_correction <- PSD_compute(
+      model = spec$model,
+      x = prior_x - metadata$reference_location,
+      h = prior_h,
+      a = metadata$curvature,
+      c = metadata$internal_shift
+    )
+    override_correction <- PSD_compute(
+      model = spec$model,
+      x = override_x - metadata$reference_location,
+      h = prior_h,
+      a = metadata$curvature,
+      c = metadata$internal_shift
+    )
+
+    expect_equal(instance@sd.prior$x, prior_x, info = spec$name)
+    expect_true(all(c("PSD", "post.PSD", "prior.PSD") %in% names(default_density)), info = spec$name)
+    expect_equal(default_density$PSD, default_density$SD * default_correction, tolerance = 1e-10, info = spec$name)
+    expect_equal(default_density$post.PSD, default_density$post / default_correction, tolerance = 1e-10, info = spec$name)
+    expect_equal(default_density$prior.PSD, default_density$prior / default_correction, tolerance = 1e-10, info = spec$name)
+    expect_equal(override_density$PSD, override_density$SD * override_correction, tolerance = 1e-10, info = spec$name)
+    expect_false(isTRUE(all.equal(default_density$PSD, override_density$PSD)), info = spec$name)
   }
 })
 

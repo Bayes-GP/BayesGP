@@ -258,11 +258,9 @@ build_nearmono_instance <- function(rand_effect, response_var, data, envir = par
   }
 
   instance <- methods::new(
-    "iwp",
+    model_name,
     response_var = as.name(response_var),
     smoothing_var = as.name(smoothing_var),
-    order = 2,
-    knots = numeric(),
     k = stored_k,
     observed_x = sort(shifted_observed_x),
     sd.prior = sd.prior,
