@@ -1,3 +1,10 @@
+# BayesGP (development version)
+
+* Bug fix:
+- `predict()` and `smooth_samples()` now use the fitted boundary basis for
+  left-reference `tiwp2` FEM terms with `normalized_boundary = FALSE`,
+  correcting posterior curves that previously used a normalized basis.
+
 # BayesGP 0.1.3
 
 * Bug fix:

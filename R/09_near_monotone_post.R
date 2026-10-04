@@ -224,15 +224,27 @@ smooth_samples <- function(object, component, refined_x = NULL, include_intercep
       }
       fitted_draws <- fitted_draws + matrix(rep(intercept_samps, each = nrow(fitted_draws)), nrow = nrow(fitted_draws))
     } else {
+      # Reconstruct the process on the normalized scale and add the fitted
+      # boundary basis separately, which may use an unnormalized transform.
       fitted_draws <- compute_post_fun_iwp(
         samps = coef_samps,
-        global_samps = if(nrow(boundary_samps) == 0) NULL else boundary_samps,
+        global_samps = NULL,
         knots = metadata$transformed_knots,
         refined_x = transformed_eval_x,
         p = 2,
         intercept_samps = intercept_samps
       )
       fitted_draws <- as.matrix(fitted_draws[, -1, drop = FALSE])
+      boundary_eval <- boundary_basis_matrix(
+        x = eval_x,
+        a = metadata$curvature,
+        c = metadata$shift,
+        initial_location = instance@initial_location,
+        normalized = metadata$normalized_boundary
+      )
+      if(nrow(boundary_samps) > 0){
+        fitted_draws <- fitted_draws + boundary_eval %*% boundary_samps
+      }
     }
   } else {
     stop("Unsupported component type.")
